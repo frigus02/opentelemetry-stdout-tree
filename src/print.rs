@@ -15,7 +15,7 @@ fn print_spans(
     let mut spans = trace.remove(&span_id).unwrap_or_default();
     spans.sort_by_key(|span_data| span_data.start_time);
     for span_data in spans {
-        write!(buffer, "{}: ", span_data.parent_span_id.to_hex())?;
+        write!(buffer, "{}", " ".repeat(indent * 2))?;
         if let Some(method) = span_data.attributes.get(&semcov::trace::HTTP_METHOD) {
             let method = method.as_str();
             let url = span_data

@@ -1,4 +1,4 @@
-//! # OpenTelemetry Pretty Stdout Exporter
+//! # OpenTelemetry Stdout Tree Exporter
 #![deny(missing_docs, unreachable_pub, missing_debug_implementations)]
 #![cfg_attr(test, deny(warnings))]
 
@@ -16,27 +16,27 @@ use std::{
 
 mod print;
 
-/// Create a new Datadog exporter pipeline builder.
-pub fn new_pipeline() -> PrettyStdoutPipelineBuilder {
-    PrettyStdoutPipelineBuilder::default()
+/// Create a new stdout tree exporter pipeline builder
+pub fn new_pipeline() -> StdoutTreePipelineBuilder {
+    StdoutTreePipelineBuilder::default()
 }
 
-/// Pipeline builder for pretty stdout exporter
+/// Pipeline builder for stdout tree exporter
 #[derive(Debug)]
-pub struct PrettyStdoutPipelineBuilder {
+pub struct StdoutTreePipelineBuilder {
     trace_config: Option<sdk::trace::Config>,
 }
 
-impl Default for PrettyStdoutPipelineBuilder {
+impl Default for StdoutTreePipelineBuilder {
     fn default() -> Self {
         Self { trace_config: None }
     }
 }
 
-impl PrettyStdoutPipelineBuilder {
-    /// Create `ExporterConfig` struct from current `ExporterConfigBuilder`
+impl StdoutTreePipelineBuilder {
+    /// Install an OpenTelemetry pipeline with the stdout tree span exporter
     pub fn install(mut self) -> (sdk::trace::Tracer, Uninstall) {
-        let exporter = PrettyStdoutExporter::new();
+        let exporter = StdoutTreeExporter::new();
         let mut provider_builder = sdk::trace::TracerProvider::builder().with_exporter(exporter);
         if let Some(config) = self.trace_config.take() {
             provider_builder = provider_builder.with_config(config);
@@ -55,13 +55,13 @@ impl PrettyStdoutPipelineBuilder {
     }
 }
 
-/// Pretty stdout span exporter
+/// Stdout tree span exporter
 #[derive(Debug)]
-pub struct PrettyStdoutExporter {
+pub struct StdoutTreeExporter {
     buffer: HashMap<TraceId, HashMap<SpanId, Vec<SpanData>>>,
 }
 
-impl PrettyStdoutExporter {
+impl StdoutTreeExporter {
     fn new() -> Self {
         Self {
             buffer: HashMap::new(),
@@ -70,7 +70,7 @@ impl PrettyStdoutExporter {
 }
 
 #[async_trait]
-impl SpanExporter for PrettyStdoutExporter {
+impl SpanExporter for StdoutTreeExporter {
     async fn export(&mut self, batch: Vec<SpanData>) -> ExportResult {
         for span_data in batch {
             if span_data.parent_span_id.to_u64() == 0 || span_data.span_context.is_remote() {
@@ -147,6 +147,6 @@ impl SpanExporter for PrettyStdoutExporter {
     }
 }
 
-/// Uninstalls the pretty stdout pipeline on drop
+/// Uninstalls the stdout tree exporter pipeline on drop
 #[derive(Debug)]
 pub struct Uninstall(global::TracerProviderGuard);

@@ -27,6 +27,114 @@ fn format_duration(d: Duration) -> String {
     }
 }
 
+fn format_timing(
+    available_width: usize,
+    trace_start_time: SystemTime,
+    trace_duration: Duration,
+    span_data: &SpanData,
+) -> String {
+    let duration = span_data
+        .end_time
+        .duration_since(span_data.start_time)
+        .unwrap_or_default();
+    let scale = available_width as f64 / trace_duration.as_nanos() as f64;
+    let start_len = (span_data
+        .start_time
+        .duration_since(trace_start_time)
+        .unwrap_or_default()
+        .as_nanos() as f64
+        * scale)
+        .round() as usize;
+    let fill_len = ((duration.as_nanos() as f64 * scale).round() as usize).max(1);
+
+    format!(
+        "{start}{fill}{end}",
+        start = " ".repeat(start_len),
+        fill = "=".repeat(fill_len),
+        end = " ".repeat(available_width - start_len - fill_len)
+    )
+}
+
+type SpanStartInfo<'a> = (Cow<'a, str>, Cow<'a, str>, bool, i64);
+
+fn get_http_span_start_info(span_data: &SpanData) -> Option<SpanStartInfo> {
+    let method = span_data
+        .attributes
+        .get(&semcov::trace::HTTP_METHOD)?
+        .as_str();
+
+    let name = if let Some(url) = span_data.attributes.get(&semcov::trace::HTTP_URL) {
+        Url::parse(&url.as_str())
+            .ok()?
+            .host_str()
+            .unwrap_or("")
+            .to_owned()
+            .into()
+    } else if let Some(server_name) = span_data.attributes.get(&semcov::trace::HTTP_SERVER_NAME) {
+        server_name.as_str()
+    } else if let Some(host) = span_data.attributes.get(&semcov::trace::HTTP_HOST) {
+        host.as_str()
+    } else {
+        span_data.name.as_str().into()
+    };
+
+    let path = if let Some(url) = span_data.attributes.get(&semcov::trace::HTTP_URL) {
+        Url::parse(&url.as_str()).ok()?.path().to_owned().into()
+    } else if let Some(route) = span_data.attributes.get(&semcov::trace::HTTP_ROUTE) {
+        route.as_str()
+    } else if let Some(target) = span_data.attributes.get(&semcov::trace::HTTP_TARGET) {
+        target.as_str()
+    } else {
+        "".into()
+    };
+
+    let status_code = span_data
+        .attributes
+        .get(&semcov::trace::HTTP_STATUS_CODE)
+        .and_then(|v| match v {
+            Value::I64(v) => Some(*v),
+            Value::F64(v) => Some(*v as i64),
+            Value::String(v) => i64::from_str_radix(v, 10).ok(),
+            _ => None,
+        });
+
+    let is_err = status_code
+        .map(|status_code| status_code >= 400)
+        .unwrap_or(span_data.status_code == StatusCode::Error);
+
+    Some((
+        name,
+        format!("{} {}", method, path).into(),
+        is_err,
+        status_code.unwrap_or(0),
+    ))
+}
+
+fn get_db_span_start_info(span_data: &SpanData) -> Option<SpanStartInfo> {
+    span_data.attributes.get(&semcov::trace::DB_SYSTEM)?;
+
+    let name = if let Some(name) = span_data.attributes.get(&semcov::trace::DB_NAME) {
+        name.as_str()
+    } else {
+        span_data.name.as_str().into()
+    };
+
+    let details = if let Some(statement) = span_data.attributes.get(&semcov::trace::DB_STATEMENT) {
+        statement.as_str()
+    } else if let Some(operation) = span_data.attributes.get(&semcov::trace::DB_OPERATION) {
+        operation.as_str()
+    } else {
+        "".into()
+    };
+
+    Some((
+        name,
+        details,
+        span_data.status_code == StatusCode::Error,
+        span_data.status_code.clone() as i64,
+    ))
+}
+
 struct PrintableTrace {
     trace: HashMap<SpanId, Vec<SpanData>>,
     trace_time: Option<(SystemTime, Duration)>,
@@ -87,62 +195,17 @@ impl PrintableTrace {
                 SpanKind::Internal => "IN",
             };
 
-            let (name, details, is_err, status): (Cow<str>, Cow<str>, bool, i64) =
-                if let Some(method) = span_data.attributes.get(&semcov::trace::HTTP_METHOD) {
-                    let name = if let Some(url) = span_data.attributes.get(&semcov::trace::HTTP_URL)
-                    {
-                        Url::parse(&url.as_str())?
-                            .host_str()
-                            .unwrap_or("")
-                            .to_owned()
-                            .into()
-                    } else if let Some(server_name) =
-                        span_data.attributes.get(&semcov::trace::HTTP_SERVER_NAME)
-                    {
-                        server_name.as_str()
-                    } else if let Some(host) = span_data.attributes.get(&semcov::trace::HTTP_HOST) {
-                        host.as_str()
-                    } else {
-                        span_data.name.into()
-                    };
-                    let method = method.as_str();
-                    let path = if let Some(url) = span_data.attributes.get(&semcov::trace::HTTP_URL)
-                    {
-                        Url::parse(&url.as_str())?.path().to_owned().into()
-                    } else if let Some(route) = span_data.attributes.get(&semcov::trace::HTTP_ROUTE)
-                    {
-                        route.as_str()
-                    } else if let Some(target) =
-                        span_data.attributes.get(&semcov::trace::HTTP_TARGET)
-                    {
-                        target.as_str()
-                    } else {
-                        "".into()
-                    };
-                    let status_code = span_data
-                        .attributes
-                        .get(&semcov::trace::HTTP_STATUS_CODE)
-                        .and_then(|v| match v {
-                            Value::I64(v) => Some(*v),
-                            Value::F64(v) => Some(*v as i64),
-                            Value::String(v) => i64::from_str_radix(v, 10).ok(),
-                            _ => None,
-                        });
-                    let is_err = status_code
-                        .map(|status_code| status_code >= 400)
-                        .unwrap_or(span_data.status_code == StatusCode::Error);
-                    (
-                        name,
-                        format!("{} {}", method, path).into(),
-                        is_err,
-                        status_code.unwrap_or(0),
-                    )
+            let (name, details, is_err, status): SpanStartInfo =
+                if let Some(data) = get_http_span_start_info(&span_data) {
+                    data
+                } else if let Some(data) = get_db_span_start_info(&span_data) {
+                    data
                 } else {
                     (
-                        span_data.name.into(),
+                        span_data.name.as_str().into(),
                         "".into(),
                         span_data.status_code == StatusCode::Error,
-                        span_data.status_code as i64,
+                        span_data.status_code.clone() as i64,
                     )
                 };
 
@@ -162,22 +225,11 @@ impl PrintableTrace {
 
             let timing: Cow<str> = if let Some((trace_start_time, trace_duration)) = self.trace_time
             {
-                let available_width = self.trace_time_width - 2;
-                let scale = available_width as f64 / trace_duration.as_nanos() as f64;
-                let start_len = (span_data
-                    .start_time
-                    .duration_since(trace_start_time)
-                    .unwrap_or_default()
-                    .as_nanos() as f64
-                    * scale)
-                    .round() as usize;
-                let fill_len = ((duration.as_nanos() as f64 * scale).round() as usize).max(1);
-
-                format!(
-                    "  {start}{fill}{end}",
-                    start = " ".repeat(start_len),
-                    fill = "=".repeat(fill_len),
-                    end = " ".repeat(available_width - start_len - fill_len)
+                format_timing(
+                    self.trace_time_width - 2,
+                    trace_start_time,
+                    trace_duration,
+                    &span_data,
                 )
                 .into()
             } else {
@@ -191,14 +243,15 @@ impl PrintableTrace {
             }))?;
             writeln!(
                 self.buffer,
-                "{start:start_width$}{status:>status_width$}{duration:>duration_width$}{timing}",
+                "{start:start_width$}{status:>status_width$}{duration:>duration_width$}{timing:>timing_width$}",
                 start = start,
                 start_width = self.start_width,
                 status = status,
                 status_width = self.status_width,
                 duration = format_duration(duration),
                 duration_width = self.duration_width,
-                timing = timing
+                timing = timing,
+                timing_width = self.trace_time_width
             )?;
 
             self.print_spans(span_data.span_context.span_id(), indent + 1)?;

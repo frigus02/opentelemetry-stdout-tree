@@ -254,6 +254,37 @@ impl PrintableTrace {
                 timing_width = self.trace_time_width
             )?;
 
+            for event in span_data.message_events {
+                let is_exception = event.name == "exception";
+                let message = if is_exception {
+                    let exc_type = event
+                        .attributes
+                        .iter()
+                        .find(|kv| kv.key == semcov::trace::EXCEPTION_TYPE)
+                        .map_or_else(|| "unknown".into(), |kv| kv.value.as_str());
+                    let exc_message = event
+                        .attributes
+                        .iter()
+                        .find(|kv| kv.key == semcov::trace::EXCEPTION_MESSAGE)
+                        .map_or_else(|| "".into(), |kv| kv.value.as_str());
+                    format!("{}: {}", exc_type, exc_message)
+                } else {
+                    event.name
+                };
+                self.buffer
+                    .set_color(ColorSpec::new().set_fg(if is_exception {
+                        Some(Color::Red)
+                    } else {
+                        None
+                    }))?;
+                writeln!(
+                    self.buffer,
+                    "{indent}{message}",
+                    indent = " ".repeat(indent + 1),
+                    message = message
+                )?;
+            }
+
             self.print_spans(span_data.span_context.span_id(), indent + 1)?;
         }
 

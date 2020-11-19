@@ -1,4 +1,4 @@
-use opentelemetry::trace::{SpanKind, StatusCode, Tracer};
+use opentelemetry::trace::{SpanKind, StatusCode, TraceContextExt as _, Tracer};
 use opentelemetry_semantic_conventions as semcov;
 use opentelemetry_stdout_tree::new_pipeline;
 use std::{thread, time::Duration};
@@ -83,7 +83,11 @@ fn main() {
             .span_builder("middleware - authenticate")
             .with_kind(SpanKind::Internal)
             .start(&tracer);
-        tracer.with_span(span, |_cx| {});
+        tracer.with_span(span, |cx| {
+            cx.span().add_event("user authenticated".into(), vec![
+                semcov::trace::ENDUSER_ID.string("42")
+            ]);
+        });
 
         let span = tracer
             .span_builder("request handler - /authors/:authorId/books/:bookId")
@@ -133,7 +137,10 @@ fn main() {
                             .with_kind(SpanKind::Internal)
                             .with_status_code(StatusCode::Error)
                             .start(&tracer);
-                        tracer.with_span(span, |_cx| {});
+                        tracer.with_span(span, |cx| {
+                            let err: Box<dyn std::error::Error> = "something went wrong".into();
+                            cx.span().record_exception(err.as_ref());
+                        });
                     });
 
                     let span = tracer

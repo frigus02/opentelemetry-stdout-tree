@@ -29,8 +29,7 @@ SE  my-awesome-books.com  GET /authors/:authorId/books/:bookId         500  586m
 
 ## Usage
 
-Configure a OpenTelemetry pipeline using the Application Insights exporter and
-start creating spans:
+Configure an OpenTelemetry pipeline and start creating spans:
 
 ```rust
 use opentelemetry::{trace::Tracer as _, sdk::trace::Tracer};

@@ -1,0 +1,26 @@
+[package]
+name = "opentelemetry-stdout-tree"
+version = "0.1.0"
+authors = ["Jan Kuehle <jkuehle90@gmail.com>"]
+description = "OpenTelemetry span exporter, which prints a tree to stdout"
+homepage = "https://github.com/frigus02/opentelemetry-stdout-tree"
+repository = "https://github.com/frigus02/opentelemetry-stdout-tree"
+readme = "README.md"
+categories = [
+    "development-tools::debugging",
+    "development-tools::profiling",
+]
+keywords = ["opentelemetry", "tracing"]
+license = "MIT"
+edition = "2018"
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+async-trait = "0.1.41"
+opentelemetry = "0.10.0"
+opentelemetry-semantic-conventions = "0.2.0"
+termcolor = "1.1.2"
+terminal_size = "0.1.15"

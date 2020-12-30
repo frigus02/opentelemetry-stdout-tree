@@ -1,5 +1,5 @@
-use opentelemetry::exporter::trace::{ExportResult, SpanData};
 use opentelemetry::{
+    sdk::export::trace::SpanData,
     trace::{SpanId, SpanKind, StatusCode},
     Value,
 };
@@ -131,7 +131,7 @@ fn get_db_span_start_info(span_data: &SpanData) -> Option<SpanStartInfo> {
         name,
         details,
         span_data.status_code == StatusCode::Error,
-        span_data.status_code.clone() as i64,
+        span_data.status_code as i64,
     ))
 }
 
@@ -150,7 +150,7 @@ impl PrintableTrace {
         trace: HashMap<SpanId, Vec<SpanData>>,
         buffer: Buffer,
         terminal_width: u16,
-    ) -> Result<Buffer, Box<dyn std::error::Error + Send + Sync + 'static>> {
+    ) -> std::io::Result<Buffer> {
         let trace_time = trace
             .get(&SpanId::invalid())
             .and_then(|spans| spans.first())
@@ -183,7 +183,7 @@ impl PrintableTrace {
         Ok(trace.buffer)
     }
 
-    fn print_spans(&mut self, span_id: SpanId, indent: usize) -> ExportResult {
+    fn print_spans(&mut self, span_id: SpanId, indent: usize) -> std::io::Result<()> {
         let mut spans = self.trace.remove(&span_id).unwrap_or_default();
         spans.sort_by_key(|span_data| span_data.start_time);
         for span_data in spans {
@@ -205,7 +205,7 @@ impl PrintableTrace {
                         span_data.name.as_str().into(),
                         "".into(),
                         span_data.status_code == StatusCode::Error,
-                        span_data.status_code.clone() as i64,
+                        span_data.status_code as i64,
                     )
                 };
 
@@ -292,7 +292,7 @@ impl PrintableTrace {
     }
 }
 
-pub(crate) fn print_trace(trace: HashMap<SpanId, Vec<SpanData>>) -> ExportResult {
+pub(crate) fn print_trace(trace: HashMap<SpanId, Vec<SpanData>>) -> std::io::Result<()> {
     let bufwtr = BufferWriter::stdout(ColorChoice::Auto);
     let buffer = bufwtr.buffer();
 

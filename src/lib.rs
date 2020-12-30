@@ -3,9 +3,15 @@
 #![cfg_attr(test, deny(warnings))]
 
 use async_trait::async_trait;
-use opentelemetry::exporter::trace::{ExportResult, SpanData, SpanExporter};
 use opentelemetry::{
-    global, sdk,
+    global,
+    sdk::{
+        self,
+        export::{
+            trace::{ExportResult, SpanData, SpanExporter},
+            ExportError,
+        },
+    },
     trace::{SpanContext, SpanId, SpanKind, StatusCode, TraceId, TracerProvider},
 };
 use std::{
@@ -81,7 +87,7 @@ impl SpanExporter for StdoutTreeExporter {
                     .remove(&span_data.span_context.trace_id())
                     .unwrap_or_else(HashMap::new);
                 trace.insert(SpanId::invalid(), vec![span_data]);
-                print::print_trace(trace)?;
+                print::print_trace(trace).map_err(Error::IOError)?;
             } else {
                 self.buffer
                     .entry(span_data.span_context.trace_id())
@@ -150,3 +156,18 @@ impl SpanExporter for StdoutTreeExporter {
 /// Uninstalls the stdout tree exporter pipeline on drop
 #[derive(Debug)]
 pub struct Uninstall(global::TracerProviderGuard);
+
+/// Errors that occurred during span export.
+#[derive(thiserror::Error, Debug)]
+#[non_exhaustive]
+pub enum Error {
+    /// Printing to stdout failed.
+    #[error("write to stdout failed with {0}")]
+    IOError(std::io::Error),
+}
+
+impl ExportError for Error {
+    fn exporter_name(&self) -> &'static str {
+        "stdout-tree"
+    }
+}

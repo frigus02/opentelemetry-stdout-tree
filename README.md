@@ -1,9 +1,11 @@
+[![Crates.io](https://img.shields.io/crates/v/opentelemetry-stdout-tree.svg)](https://crates.io/crates/opentelemetry-stdout-tree)
+[![Documentation](https://docs.rs/opentelemetry-stdout-tree/badge.svg)](https://docs.rs/opentelemetry-stdout-tree)
+[![Workflow Status](https://github.com/frigus02/opentelemetry-stdout-tree/workflows/CI/badge.svg)](https://github.com/frigus02/opentelemetry-stdout-tree/actions?query=workflow%3A%22CI%22)
+
 # opentelemetry-stdout-tree
 
-**NOTE:** This is not released, yet.
-
-An stdout exporter implementation for [OpenTelemetry Rust], which prints traces
-in a tree-like format.
+An stdout exporter implementation for [OpenTelemetry Rust], which prints traces in a tree-like
+format.
 
 [opentelemetry rust]: https://github.com/open-telemetry/opentelemetry-rust
 
@@ -32,24 +34,22 @@ SE  my-awesome-books.com  GET /authors/:authorId/books/:bookId         500  586m
 Configure an OpenTelemetry pipeline and start creating spans:
 
 ```rust
-use opentelemetry::{trace::Tracer as _, sdk::trace::Tracer};
+use opentelemetry::trace::Tracer as _;
 
-fn main() {
-    let (tracer, _uninstall) = opentelemetry_stdout_tree::new_pipeline().install();
-    tracer.in_span("main", |_cx| {});
-}
+let (tracer, _uninstall) = opentelemetry_stdout_tree::new_pipeline().install();
+tracer.in_span("main", |_cx| {});
 ```
 
 ### Features
 
-The function `install` automatically configures an asynchronous batch exporter
-if you enable either the **async-std** or **tokio** feature for the
-`opentelemetry` crate. Otherwise spans will be exported synchronously.
+The function `install` automatically configures an asynchronous batch exporter if you enable
+either the **async-std** or **tokio** feature for the `opentelemetry` crate. Otherwise spans
+will be exported synchronously.
 
 ## Attribute mapping
 
-The exporter makes use of [OpenTelemetry semantic conventions] to provide more
-useful output for known types of spans. Currently supported are:
+The exporter makes use of [OpenTelemetry semantic conventions] to provide more useful output
+for known types of spans. Currently supported are:
 
 - HTTP: Shows method, host and path and uses status code to determine errors.
 - DB: Shows database name and statement or operation.

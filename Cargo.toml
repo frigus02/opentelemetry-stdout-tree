@@ -2,7 +2,7 @@
 name = "opentelemetry-stdout-tree"
 version = "0.1.0"
 authors = ["Jan Kuehle <jkuehle90@gmail.com>"]
-description = "OpenTelemetry span exporter, which prints a tree to stdout"
+description = "OpenTelemetry span exporter, which prints traces in a tree-like format"
 homepage = "https://github.com/frigus02/opentelemetry-stdout-tree"
 repository = "https://github.com/frigus02/opentelemetry-stdout-tree"
 readme = "README.md"
@@ -26,3 +26,9 @@ opentelemetry-semantic-conventions = "0.3"
 termcolor = "1"
 terminal_size = "0.1"
 url = "2"
+
+[dev-dependencies]
+version-sync = "0.9.1"
+
+[badges]
+github = { repository = "frigus02/opentelemetry-stdout-tree", workflow = "CI" }

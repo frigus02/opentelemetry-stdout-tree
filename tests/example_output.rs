@@ -12,11 +12,10 @@ fn example_output() {
 }
 
 fn normalize_output(output: &str) -> Vec<String> {
-    let re_duration = Regex::new("(0|\\d+ms)  (?P<tail> *=*)$").unwrap();
+    let re_duration = Regex::new("(0|\\d+ms) *=* *$").unwrap();
     output
         .lines()
-        .map(|line| line.trim_end())
-        .map(|line| re_duration.replace(line, "100ms  $tail").into_owned())
+        .map(|line| re_duration.replace(line, "").into_owned())
         .collect::<Vec<_>>()
 }
 

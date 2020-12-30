@@ -28,6 +28,8 @@ terminal_size = "0.1"
 url = "2"
 
 [dev-dependencies]
+pretty_assertions = "0.6.1"
+regex = "1"
 version-sync = "0.9.1"
 
 [badges]

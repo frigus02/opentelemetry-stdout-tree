@@ -299,7 +299,7 @@ pub(crate) fn print_trace(trace: HashMap<SpanId, Vec<SpanData>>) -> std::io::Res
     let terminal_width = if let Some((terminal_size::Width(w), _)) = terminal_size() {
         w
     } else {
-        120
+        100
     };
 
     let buffer = PrintableTrace::print(trace, buffer, terminal_width)?;

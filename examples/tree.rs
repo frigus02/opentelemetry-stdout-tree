@@ -47,7 +47,7 @@ fn main() {
                 .with_kind(SpanKind::Client)
                 .start(&tracer);
             tracer.with_span(span, |_cx| {
-                thread::sleep(Duration::from_millis(399));
+                thread::sleep(Duration::from_millis(300));
             });
 
             let span = tracer
@@ -69,7 +69,7 @@ fn main() {
                 ])
                 .start(&tracer);
             tracer.with_span(span, |_cx| {
-                thread::sleep(Duration::from_millis(116));
+                thread::sleep(Duration::from_millis(200));
             });
         });
 

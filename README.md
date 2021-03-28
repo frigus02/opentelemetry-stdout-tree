@@ -18,13 +18,13 @@ SE  my-awesome-books.com  GET /authors/:authorId/boo  500  584ms  ==============
   CL  sessions  SELECT sess FROM "session" WHERE sid    0  219ms           =======
  IN  middleware - initialize                            0      0                  =
  IN  middleware - authenticate                          0      0                  =
-  user authenticated
+  user authenticated                                                              .
  IN  request handler - /authors/:authorId/books/:boo    0   59ms                  ==
   CL  book-service.book-service  POST /graphql        200   59ms                  ==
    SE  book-service.book.service  POST /graphql       200      0                   =
     IN  query                                           0      0                   =
      IN  field                                          2      0                   =
-      unknown: something went wrong
+      unknown: something went wrong                                                .
     IN  parse                                           0      0                   =
     IN  validation                                      0      0                   =
 ```

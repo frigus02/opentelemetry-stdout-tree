@@ -1,5 +1,4 @@
 use pretty_assertions::assert_eq;
-use regex::Regex;
 use std::fs::File;
 use std::io::Read;
 use std::process::Command;
@@ -12,10 +11,12 @@ fn example_output() {
 }
 
 fn normalize_output(output: &str) -> Vec<String> {
-    let re_duration = Regex::new("(0|\\d+ms) *=* *$").unwrap();
     output
         .lines()
-        .map(|line| re_duration.replace(line, "").into_owned())
+        .map(|line| {
+            // Remove duration and timing because it's random
+            line[..59].to_string()
+        })
         .collect::<Vec<_>>()
 }
 

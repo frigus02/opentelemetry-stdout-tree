@@ -12,6 +12,16 @@ use termcolor::{Buffer, BufferWriter, Color, ColorChoice, ColorSpec, WriteColor}
 use terminal_size::terminal_size;
 use url::Url;
 
+/// Number of whitespace characters between columns (e.g. between status and duration).
+const COLUMN_GAP: usize = 2;
+
+/// Width of the status column. The longest expected content is an HTTP status code, i.e. 3 digits.
+const STATUS_WIDTH: usize = 3;
+
+/// Width of the duration column. The longest expected content  is 3 digits plus a 1-2 character
+/// long unit, e.g. 999ms.
+const DURATION_WIDTH: usize = 5;
+
 fn format_duration(d: Duration) -> String {
     let secs = d.as_secs();
     if secs > 7200 {
@@ -30,24 +40,22 @@ fn format_duration(d: Duration) -> String {
 fn format_timing(
     available_width: usize,
     timing_parent: &TimingParent,
-    span_data: &SpanData,
+    start_time: SystemTime,
+    end_time: SystemTime,
+    fill_char: char,
 ) -> String {
     let scale = available_width as f64 / timing_parent.duration.as_secs_f64();
-    let start_gap = span_data
-        .start_time
+    let start_gap = start_time
         .duration_since(timing_parent.start)
         .unwrap_or_default();
     let start_len = ((start_gap.as_secs_f64() * scale).round() as usize).min(available_width - 1);
-    let duration = span_data
-        .end_time
-        .duration_since(span_data.start_time)
-        .unwrap_or_default();
+    let duration = end_time.duration_since(start_time).unwrap_or_default();
     let fill_len = ((duration.as_secs_f64() * scale).round() as usize).max(1);
 
     format!(
         "{start}{fill}{end}",
         start = " ".repeat(start_len),
-        fill = "=".repeat(fill_len),
+        fill = fill_char.to_string().repeat(fill_len),
         end = " ".repeat(available_width - start_len - fill_len)
     )
 }
@@ -153,7 +161,13 @@ fn get_default_span_start_info(span_data: &SpanData) -> SpanStartInfo {
     }
 }
 
-fn print_event(event: Event, buffer: &mut Buffer, indent: usize) -> std::io::Result<()> {
+fn print_event(
+    event: Event,
+    buffer: &mut Buffer,
+    indent: usize,
+    columns: &PrintColumns,
+    timing_parent: &TimingParent,
+) -> std::io::Result<()> {
     let is_exception = event.name == "exception";
     let message = if is_exception {
         let exc_type = event
@@ -170,6 +184,22 @@ fn print_event(event: Event, buffer: &mut Buffer, indent: usize) -> std::io::Res
     } else {
         event.name.into_owned()
     };
+
+    let mut start = format!(
+        "{indent}{message}",
+        indent = " ".repeat(indent),
+        message = message
+    );
+    start.truncate(columns.start_width + columns.status_width + columns.duration_width);
+
+    let timing = format_timing(
+        columns.trace_time_width - COLUMN_GAP,
+        timing_parent,
+        event.timestamp,
+        event.timestamp,
+        '.',
+    );
+
     buffer.set_color(ColorSpec::new().set_fg(if is_exception {
         Some(Color::Red)
     } else {
@@ -177,9 +207,11 @@ fn print_event(event: Event, buffer: &mut Buffer, indent: usize) -> std::io::Res
     }))?;
     writeln!(
         buffer,
-        "{indent}{message}",
-        indent = " ".repeat(indent),
-        message = message
+        "{start:start_width$}{timing:>timing_width$}",
+        start = start,
+        start_width = columns.start_width + columns.status_width + columns.duration_width,
+        timing = timing,
+        timing_width = columns.trace_time_width
     )
 }
 
@@ -187,7 +219,7 @@ fn print_span(
     span_data: &SpanData,
     buffer: &mut Buffer,
     indent: usize,
-    columns: &SpanColumns,
+    columns: &PrintColumns,
     timing_parent: &TimingParent,
 ) -> std::io::Result<()> {
     let kind = match span_data.span_kind {
@@ -221,7 +253,13 @@ fn print_span(
         .duration_since(span_data.start_time)
         .unwrap_or_default();
 
-    let timing = format_timing(columns.trace_time_width - 2, timing_parent, span_data);
+    let timing = format_timing(
+        columns.trace_time_width - COLUMN_GAP,
+        timing_parent,
+        span_data.start_time,
+        span_data.end_time,
+        '=',
+    );
 
     buffer.set_color(ColorSpec::new().set_fg(if is_err { Some(Color::Red) } else { None }))?;
     writeln!(
@@ -238,7 +276,8 @@ fn print_span(
     )
 }
 
-struct SpanColumns {
+#[derive(Clone, Copy)]
+struct PrintColumns {
     start_width: usize,
     status_width: usize,
     duration_width: usize,
@@ -250,10 +289,10 @@ struct TimingParent {
     duration: Duration,
 }
 
-struct PrintableTrace<'a> {
-    trace: &'a mut HashMap<SpanId, Vec<SpanData>>,
+struct PrintableTrace {
+    trace: HashMap<SpanId, Vec<SpanData>>,
     buffer: Buffer,
-    columns: SpanColumns,
+    columns: PrintColumns,
     timing_parent: TimingParent,
 }
 
@@ -262,12 +301,22 @@ enum Printable {
     Span(Box<SpanData>),
 }
 
-impl<'a> PrintableTrace<'a> {
+impl PrintableTrace {
     fn print(
         mut trace: HashMap<SpanId, Vec<SpanData>>,
         mut buffer: Buffer,
-        terminal_width: u16,
+        terminal_width: usize,
     ) -> std::io::Result<Buffer> {
+        let status_width = STATUS_WIDTH + COLUMN_GAP;
+        let duration_width = DURATION_WIDTH + COLUMN_GAP;
+        let trace_time_width = terminal_width / 5;
+        let columns = PrintColumns {
+            start_width: terminal_width - status_width - duration_width - trace_time_width,
+            status_width,
+            duration_width,
+            trace_time_width,
+        };
+
         let parent_span_id = SpanId::invalid();
         let spans = trace
             .remove(&parent_span_id)
@@ -283,26 +332,14 @@ impl<'a> PrintableTrace<'a> {
                 duration: trace_duration,
             };
 
-            let status_width = 5;
-            let duration_width = 7;
-            let trace_time_width = (terminal_width / 5) as usize;
-            let columns = SpanColumns {
-                start_width: terminal_width as usize
-                    - status_width
-                    - duration_width
-                    - trace_time_width,
-                status_width,
-                duration_width,
-                trace_time_width,
-            };
-
             let mut printable_trace = PrintableTrace {
-                trace: &mut trace,
+                trace,
                 buffer,
                 columns,
                 timing_parent,
             };
             printable_trace.print_span_tree(span, 0)?;
+            trace = printable_trace.trace;
             buffer = printable_trace.buffer;
         }
 
@@ -342,7 +379,13 @@ impl<'a> PrintableTrace<'a> {
         for child in children {
             match child {
                 Printable::Span(span) => self.print_span_tree(*span, indent + 1)?,
-                Printable::Event(event) => print_event(*event, &mut self.buffer, indent + 1)?,
+                Printable::Event(event) => print_event(
+                    *event,
+                    &mut self.buffer,
+                    indent + 1,
+                    &self.columns,
+                    &self.timing_parent,
+                )?,
             };
         }
 
@@ -350,15 +393,19 @@ impl<'a> PrintableTrace<'a> {
     }
 }
 
+fn get_terminal_width() -> usize {
+    if let Some((terminal_size::Width(w), _)) = terminal_size() {
+        w as usize
+    } else {
+        80
+    }
+}
+
 pub(crate) fn print_trace(trace: HashMap<SpanId, Vec<SpanData>>) -> std::io::Result<()> {
     let bufwtr = BufferWriter::stdout(ColorChoice::Auto);
     let buffer = bufwtr.buffer();
 
-    let terminal_width = if let Some((terminal_size::Width(w), _)) = terminal_size() {
-        w
-    } else {
-        80
-    };
+    let terminal_width = get_terminal_width();
 
     let buffer = PrintableTrace::print(trace, buffer, terminal_width)?;
     bufwtr.print(&buffer)?;

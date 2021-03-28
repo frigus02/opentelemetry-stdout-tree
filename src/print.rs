@@ -1,6 +1,6 @@
 use opentelemetry::{
     sdk::export::trace::SpanData,
-    trace::{SpanId, SpanKind, StatusCode},
+    trace::{Event, SpanId, SpanKind, StatusCode},
     Value,
 };
 use opentelemetry_semantic_conventions as semcov;
@@ -29,18 +29,17 @@ fn format_duration(d: Duration) -> String {
 
 fn format_timing(
     available_width: usize,
-    trace_start_time: SystemTime,
-    trace_duration: Duration,
+    timing_parent: &TimingParent,
     span_data: &SpanData,
 ) -> String {
     let duration = span_data
         .end_time
         .duration_since(span_data.start_time)
         .unwrap_or_default();
-    let scale = available_width as f64 / trace_duration.as_nanos() as f64;
+    let scale = available_width as f64 / timing_parent.duration.as_nanos() as f64;
     let start_len = (span_data
         .start_time
-        .duration_since(trace_start_time)
+        .duration_since(timing_parent.start)
         .unwrap_or_default()
         .as_nanos() as f64
         * scale)
@@ -149,14 +148,108 @@ fn get_default_span_start_info(span_data: &SpanData) -> SpanStartInfo {
     }
 }
 
-struct PrintableTrace {
-    trace: HashMap<SpanId, Vec<SpanData>>,
-    trace_time: Option<(SystemTime, Duration)>,
-    buffer: Buffer,
+fn print_event(event: Event, buffer: &mut Buffer, indent: usize) -> std::io::Result<()> {
+    let is_exception = event.name == "exception";
+    let message = if is_exception {
+        let exc_type = event
+            .attributes
+            .iter()
+            .find(|kv| kv.key == semcov::trace::EXCEPTION_TYPE)
+            .map_or_else(|| "unknown".into(), |kv| kv.value.as_str());
+        let exc_message = event
+            .attributes
+            .iter()
+            .find(|kv| kv.key == semcov::trace::EXCEPTION_MESSAGE)
+            .map_or_else(|| "".into(), |kv| kv.value.as_str());
+        format!("{}: {}", exc_type, exc_message)
+    } else {
+        event.name.into_owned()
+    };
+    buffer.set_color(ColorSpec::new().set_fg(if is_exception {
+        Some(Color::Red)
+    } else {
+        None
+    }))?;
+    writeln!(
+        buffer,
+        "{indent}{message}",
+        indent = " ".repeat(indent),
+        message = message
+    )
+}
+
+fn print_span(
+    span_data: &SpanData,
+    buffer: &mut Buffer,
+    indent: usize,
+    columns: &SpanColumns,
+    timing_parent: &TimingParent,
+) -> std::io::Result<()> {
+    let kind = match span_data.span_kind {
+        SpanKind::Client => "CL",
+        SpanKind::Server => "SE",
+        SpanKind::Producer => "PR",
+        SpanKind::Consumer => "CO",
+        SpanKind::Internal => "IN",
+    };
+
+    let SpanStartInfo {
+        name,
+        details,
+        is_err,
+        status,
+    } = get_http_span_start_info(&span_data)
+        .or_else(|| get_db_span_start_info(&span_data))
+        .unwrap_or_else(|| get_default_span_start_info(&span_data));
+
+    let mut start = format!(
+        "{indent}{kind}  {name}  {details}",
+        indent = " ".repeat(indent),
+        kind = kind,
+        name = name,
+        details = details
+    );
+    start.truncate(columns.start_width);
+
+    let duration = span_data
+        .end_time
+        .duration_since(span_data.start_time)
+        .unwrap_or_default();
+
+    let timing = format_timing(columns.trace_time_width - 2, timing_parent, span_data);
+
+    buffer.set_color(ColorSpec::new().set_fg(if is_err { Some(Color::Red) } else { None }))?;
+    writeln!(
+        buffer,
+        "{start:start_width$}{status:>status_width$}{duration:>duration_width$}{timing:>timing_width$}",
+        start = start,
+        start_width = columns.start_width,
+        status = status,
+        status_width = columns.status_width,
+        duration = format_duration(duration),
+        duration_width = columns.duration_width,
+        timing = timing,
+        timing_width = columns.trace_time_width
+    )
+}
+
+struct SpanColumns {
     start_width: usize,
     status_width: usize,
     duration_width: usize,
     trace_time_width: usize,
+}
+
+struct TimingParent {
+    start: SystemTime,
+    duration: Duration,
+}
+
+struct PrintableTrace {
+    trace: HashMap<SpanId, Vec<SpanData>>,
+    buffer: Buffer,
+    columns: SpanColumns,
+    timing_parent: TimingParent,
 }
 
 impl PrintableTrace {
@@ -165,132 +258,54 @@ impl PrintableTrace {
         buffer: Buffer,
         terminal_width: u16,
     ) -> std::io::Result<Buffer> {
-        let trace_time = trace
-            .get(&SpanId::invalid())
-            .and_then(|spans| spans.first())
-            .map(|span_data| {
-                (
-                    span_data.start_time,
-                    span_data
-                        .end_time
-                        .duration_since(span_data.start_time)
-                        .unwrap_or_default(),
-                )
-            });
-        let trace_time_width = if trace_time.is_some() {
-            (terminal_width / 5) as usize
-        } else {
-            0
+        let parent_span_id = SpanId::invalid();
+        let first_span = trace
+            .get(&parent_span_id)
+            .and_then(|span| span.first())
+            .ok_or(std::io::ErrorKind::NotFound)?;
+        let trace_start = first_span.start_time;
+        let trace_duration = first_span
+            .end_time
+            .duration_since(first_span.start_time)
+            .unwrap_or_default();
+        let timing_parent = TimingParent {
+            start: trace_start,
+            duration: trace_duration,
         };
+
         let status_width = 5;
         let duration_width = 7;
-        let mut trace = PrintableTrace {
-            trace,
-            trace_time,
-            buffer,
+        let trace_time_width = (terminal_width / 5) as usize;
+        let columns = SpanColumns {
             start_width: terminal_width as usize - status_width - duration_width - trace_time_width,
             status_width,
             duration_width,
             trace_time_width,
         };
-        trace.print_spans(SpanId::invalid(), 0)?;
+        let mut trace = PrintableTrace {
+            trace,
+            buffer,
+            columns,
+            timing_parent,
+        };
+        trace.print_spans(parent_span_id, 0)?;
         Ok(trace.buffer)
     }
 
-    fn print_spans(&mut self, span_id: SpanId, indent: usize) -> std::io::Result<()> {
-        let mut spans = self.trace.remove(&span_id).unwrap_or_default();
+    fn print_spans(&mut self, parent_span_id: SpanId, indent: usize) -> std::io::Result<()> {
+        let mut spans = self.trace.remove(&parent_span_id).unwrap_or_default();
         spans.sort_by_key(|span_data| span_data.start_time);
         for span_data in spans {
-            let kind = match span_data.span_kind {
-                SpanKind::Client => "CL",
-                SpanKind::Server => "SE",
-                SpanKind::Producer => "PR",
-                SpanKind::Consumer => "CO",
-                SpanKind::Internal => "IN",
-            };
-
-            let SpanStartInfo {
-                name,
-                details,
-                is_err,
-                status,
-            } = get_http_span_start_info(&span_data)
-                .or_else(|| get_db_span_start_info(&span_data))
-                .unwrap_or_else(|| get_default_span_start_info(&span_data));
-
-            let duration = span_data
-                .end_time
-                .duration_since(span_data.start_time)
-                .unwrap_or_default();
-
-            let mut start = format!(
-                "{indent}{kind}  {name}  {details}",
-                indent = " ".repeat(indent),
-                kind = kind,
-                name = name,
-                details = details
-            );
-            start.truncate(self.start_width);
-
-            let timing = self
-                .trace_time
-                .map(|(trace_start_time, trace_duration)| {
-                    format_timing(
-                        self.trace_time_width - 2,
-                        trace_start_time,
-                        trace_duration,
-                        &span_data,
-                    )
-                })
-                .unwrap_or_else(|| "".into());
-
-            self.buffer.set_color(ColorSpec::new().set_fg(if is_err {
-                Some(Color::Red)
-            } else {
-                None
-            }))?;
-            writeln!(
-                self.buffer,
-                "{start:start_width$}{status:>status_width$}{duration:>duration_width$}{timing:>timing_width$}",
-                start = start,
-                start_width = self.start_width,
-                status = status,
-                status_width = self.status_width,
-                duration = format_duration(duration),
-                duration_width = self.duration_width,
-                timing = timing,
-                timing_width = self.trace_time_width
+            print_span(
+                &span_data,
+                &mut self.buffer,
+                indent,
+                &self.columns,
+                &self.timing_parent,
             )?;
 
             for event in span_data.message_events {
-                let is_exception = event.name == "exception";
-                let message = if is_exception {
-                    let exc_type = event
-                        .attributes
-                        .iter()
-                        .find(|kv| kv.key == semcov::trace::EXCEPTION_TYPE)
-                        .map_or_else(|| "unknown".into(), |kv| kv.value.as_str());
-                    let exc_message = event
-                        .attributes
-                        .iter()
-                        .find(|kv| kv.key == semcov::trace::EXCEPTION_MESSAGE)
-                        .map_or_else(|| "".into(), |kv| kv.value.as_str());
-                    format!("{}: {}", exc_type, exc_message)
-                } else {
-                    event.name.into_owned()
-                };
-                self.buffer
-                    .set_color(ColorSpec::new().set_fg(if is_exception {
-                        Some(Color::Red)
-                    } else {
-                        None
-                    }))?;
-                writeln!(
-                    self.buffer,
-                    "{indent}{message}",
-                    indent = " ".repeat(indent + 1),
-                    message = message
-                )?;
+                print_event(event, &mut self.buffer, indent + 1)?;
             }
 
             self.print_spans(span_data.span_context.span_id(), indent + 1)?;

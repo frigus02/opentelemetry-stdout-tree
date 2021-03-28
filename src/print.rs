@@ -140,9 +140,16 @@ fn get_db_span_start_info(span_data: &SpanData) -> Option<SpanStartInfo> {
 }
 
 fn get_default_span_start_info(span_data: &SpanData) -> SpanStartInfo {
+    let details = span_data
+        .attributes
+        .iter()
+        .map(|(k, v)| format!("{}={}", k, v))
+        .collect::<Vec<_>>()
+        .join(" ");
+
     SpanStartInfo {
         name: span_data.name.as_str().into(),
-        details: "".into(),
+        details: details.into(),
         is_err: span_data.status_code == StatusCode::Error,
         status: span_data.status_code as i64,
     }
@@ -282,6 +289,7 @@ impl PrintableTrace {
             duration_width,
             trace_time_width,
         };
+
         let mut trace = PrintableTrace {
             trace,
             buffer,
@@ -304,6 +312,9 @@ impl PrintableTrace {
                 &self.timing_parent,
             )?;
 
+            // TODO: Current we print events first, then child spans. Ideally we would sort events
+            // and child spans by timestamp. If an event occurred after a child span it should also
+            // be printed after that child span.
             for event in span_data.message_events {
                 print_event(event, &mut self.buffer, indent + 1)?;
             }

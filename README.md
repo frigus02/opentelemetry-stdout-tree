@@ -10,23 +10,23 @@ format.
 [opentelemetry rust]: https://github.com/open-telemetry/opentelemetry-rust
 
 ```
-SE  my-awesome-books.com  GET /authors/:authorId/books/:bookId        500  584ms  ==================
- IN  middleware - expressInit                                           0      0  =
- IN  middleware - query                                                 0      0  =
- IN  middleware - session                                               0  523ms  ================
-  CL  pg-pool.connect                                                   0  303ms  =========
-  CL  sessions  SELECT sess FROM "session" WHERE sid = $1 AND expire    0  219ms           =======
- IN  middleware - initialize                                            0      0                  =
- IN  middleware - authenticate                                          0      0                  =
+SE  my-awesome-books.com  GET /authors/:authorId/boo  500  584ms  ==================
+ IN  middleware - expressInit                           0      0  =
+ IN  middleware - query                                 0      0  =
+ IN  middleware - session                               0  523ms  ================
+  CL  pg-pool.connect                                   0  303ms  =========
+  CL  sessions  SELECT sess FROM "session" WHERE sid    0  219ms           =======
+ IN  middleware - initialize                            0      0                  =
+ IN  middleware - authenticate                          0      0                  =
   user authenticated
- IN  request handler - /authors/:authorId/books/:bookId                 0   59ms                  ==
-  CL  book-service.book-service  POST /graphql                        200   59ms                  ==
-   SE  book-service.book.service  POST /graphql                       200      0                   =
-    IN  query                                                           0      0                   =
-     IN  field                                                          2      0                   =
+ IN  request handler - /authors/:authorId/books/:boo    0   59ms                  ==
+  CL  book-service.book-service  POST /graphql        200   59ms                  ==
+   SE  book-service.book.service  POST /graphql       200      0                   =
+    IN  query                                           0      0                   =
+     IN  field                                          2      0                   =
       unknown: something went wrong
-    IN  parse                                                           0      0                   =
-    IN  validation                                                      0      0                   =
+    IN  parse                                           0      0                   =
+    IN  validation                                      0      0                   =
 ```
 
 ## Usage
@@ -36,7 +36,7 @@ Configure an OpenTelemetry pipeline and start creating spans:
 ```rust
 use opentelemetry::trace::Tracer as _;
 
-let (tracer, _uninstall) = opentelemetry_stdout_tree::new_pipeline().install();
+let tracer = opentelemetry_stdout_tree::new_pipeline().install_simple();
 tracer.in_span("main", |_cx| {});
 ```
 

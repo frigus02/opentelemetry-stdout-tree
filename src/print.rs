@@ -250,74 +250,100 @@ struct TimingParent {
     duration: Duration,
 }
 
-struct PrintableTrace {
-    trace: HashMap<SpanId, Vec<SpanData>>,
+struct PrintableTrace<'a> {
+    trace: &'a mut HashMap<SpanId, Vec<SpanData>>,
     buffer: Buffer,
     columns: SpanColumns,
     timing_parent: TimingParent,
 }
 
-impl PrintableTrace {
+enum Printable {
+    Event(Box<Event>),
+    Span(Box<SpanData>),
+}
+
+impl<'a> PrintableTrace<'a> {
     fn print(
-        trace: HashMap<SpanId, Vec<SpanData>>,
-        buffer: Buffer,
+        mut trace: HashMap<SpanId, Vec<SpanData>>,
+        mut buffer: Buffer,
         terminal_width: u16,
     ) -> std::io::Result<Buffer> {
         let parent_span_id = SpanId::invalid();
-        let first_span = trace
-            .get(&parent_span_id)
-            .and_then(|span| span.first())
+        let spans = trace
+            .remove(&parent_span_id)
             .ok_or(std::io::ErrorKind::NotFound)?;
-        let trace_start = first_span.start_time;
-        let trace_duration = first_span
-            .end_time
-            .duration_since(first_span.start_time)
-            .unwrap_or_default();
-        let timing_parent = TimingParent {
-            start: trace_start,
-            duration: trace_duration,
-        };
+        for span in spans {
+            let trace_start = span.start_time;
+            let trace_duration = span
+                .end_time
+                .duration_since(span.start_time)
+                .unwrap_or_default();
+            let timing_parent = TimingParent {
+                start: trace_start,
+                duration: trace_duration,
+            };
 
-        let status_width = 5;
-        let duration_width = 7;
-        let trace_time_width = (terminal_width / 5) as usize;
-        let columns = SpanColumns {
-            start_width: terminal_width as usize - status_width - duration_width - trace_time_width,
-            status_width,
-            duration_width,
-            trace_time_width,
-        };
+            let status_width = 5;
+            let duration_width = 7;
+            let trace_time_width = (terminal_width / 5) as usize;
+            let columns = SpanColumns {
+                start_width: terminal_width as usize
+                    - status_width
+                    - duration_width
+                    - trace_time_width,
+                status_width,
+                duration_width,
+                trace_time_width,
+            };
 
-        let mut trace = PrintableTrace {
-            trace,
-            buffer,
-            columns,
-            timing_parent,
-        };
-        trace.print_spans(parent_span_id, 0)?;
-        Ok(trace.buffer)
+            let mut printable_trace = PrintableTrace {
+                trace: &mut trace,
+                buffer,
+                columns,
+                timing_parent,
+            };
+            printable_trace.print_span_tree(span, 0)?;
+            buffer = printable_trace.buffer;
+        }
+
+        Ok(buffer)
     }
 
-    fn print_spans(&mut self, parent_span_id: SpanId, indent: usize) -> std::io::Result<()> {
-        let mut spans = self.trace.remove(&parent_span_id).unwrap_or_default();
-        spans.sort_by_key(|span_data| span_data.start_time);
-        for span_data in spans {
-            print_span(
-                &span_data,
-                &mut self.buffer,
-                indent,
-                &self.columns,
-                &self.timing_parent,
-            )?;
+    fn get_child_spans(&mut self, parent_span_id: SpanId) -> Vec<SpanData> {
+        self.trace.remove(&parent_span_id).unwrap_or_default()
+    }
 
-            // TODO: Current we print events first, then child spans. Ideally we would sort events
-            // and child spans by timestamp. If an event occurred after a child span it should also
-            // be printed after that child span.
-            for event in span_data.message_events {
-                print_event(event, &mut self.buffer, indent + 1)?;
-            }
+    fn print_span_tree(&mut self, span_data: SpanData, indent: usize) -> std::io::Result<()> {
+        print_span(
+            &span_data,
+            &mut self.buffer,
+            indent,
+            &self.columns,
+            &self.timing_parent,
+        )?;
 
-            self.print_spans(span_data.span_context.span_id(), indent + 1)?;
+        let mut children: Vec<Printable> = self
+            .get_child_spans(span_data.span_context.span_id())
+            .into_iter()
+            .map(|span| Printable::Span(Box::new(span)))
+            .chain(
+                span_data
+                    .message_events
+                    .into_iter()
+                    .map(|event| Printable::Event(Box::new(event))),
+            )
+            .collect();
+
+        children.sort_by_key(|x| match x {
+            Printable::Span(span) => span.start_time,
+            Printable::Event(event) => event.timestamp,
+        });
+
+        for child in children {
+            match child {
+                Printable::Span(span) => self.print_span_tree(*span, indent + 1)?,
+                Printable::Event(event) => print_event(*event, &mut self.buffer, indent + 1)?,
+            };
         }
 
         Ok(())

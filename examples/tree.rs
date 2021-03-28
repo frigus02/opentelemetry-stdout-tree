@@ -1,10 +1,9 @@
 use opentelemetry::trace::{SpanKind, StatusCode, TraceContextExt as _, Tracer};
 use opentelemetry_semantic_conventions as semcov;
-use opentelemetry_stdout_tree::new_pipeline;
 use std::{thread, time::Duration};
 
 fn main() {
-    let (tracer, _uninstall) = new_pipeline().install();
+    let tracer = opentelemetry_stdout_tree::new_pipeline().install_simple();
 
     let span = tracer
         .span_builder("request")

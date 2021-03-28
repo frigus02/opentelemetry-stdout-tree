@@ -269,7 +269,7 @@ impl PrintableTrace {
                         .map_or_else(|| "".into(), |kv| kv.value.as_str());
                     format!("{}: {}", exc_type, exc_message)
                 } else {
-                    event.name
+                    event.name.into_owned()
                 };
                 self.buffer
                     .set_color(ColorSpec::new().set_fg(if is_exception {

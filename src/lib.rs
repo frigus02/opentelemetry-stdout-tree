@@ -30,7 +30,7 @@
 //! ```
 //! use opentelemetry::trace::Tracer as _;
 //!
-//! let (tracer, _uninstall) = opentelemetry_stdout_tree::new_pipeline().install();
+//! let tracer = opentelemetry_stdout_tree::new_pipeline().install_simple();
 //! tracer.in_span("main", |_cx| {});
 //! ```
 //!
@@ -93,17 +93,18 @@ impl Default for StdoutTreePipelineBuilder {
 
 impl StdoutTreePipelineBuilder {
     /// Install an OpenTelemetry pipeline with the stdout tree span exporter
-    pub fn install(mut self) -> (sdk::trace::Tracer, Uninstall) {
+    pub fn install_simple(mut self) -> sdk::trace::Tracer {
         let exporter = StdoutTreeExporter::new();
-        let mut provider_builder = sdk::trace::TracerProvider::builder().with_exporter(exporter);
+        let mut provider_builder =
+            sdk::trace::TracerProvider::builder().with_simple_exporter(exporter);
         if let Some(config) = self.trace_config.take() {
             provider_builder = provider_builder.with_config(config);
         }
         let provider = provider_builder.build();
         let tracer =
             provider.get_tracer("opentelemetry-stdout-tree", Some(env!("CARGO_PKG_VERSION")));
-        let provider_guard = global::set_tracer_provider(provider);
-        (tracer, Uninstall(provider_guard))
+        let _ = global::set_tracer_provider(provider);
+        tracer
     }
 
     /// Assign the SDK trace configuration
@@ -204,10 +205,6 @@ impl SpanExporter for StdoutTreeExporter {
         }
     }
 }
-
-/// Uninstalls the stdout tree exporter pipeline on drop
-#[derive(Debug)]
-pub struct Uninstall(global::TracerProviderGuard);
 
 /// Errors that occurred during span export.
 #[derive(thiserror::Error, Debug)]

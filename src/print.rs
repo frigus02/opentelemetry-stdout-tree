@@ -32,19 +32,17 @@ fn format_timing(
     timing_parent: &TimingParent,
     span_data: &SpanData,
 ) -> String {
+    let scale = available_width as f64 / timing_parent.duration.as_secs_f64();
+    let start_gap = span_data
+        .start_time
+        .duration_since(timing_parent.start)
+        .unwrap_or_default();
+    let start_len = ((start_gap.as_secs_f64() * scale).round() as usize).min(available_width - 1);
     let duration = span_data
         .end_time
         .duration_since(span_data.start_time)
         .unwrap_or_default();
-    let scale = available_width as f64 / timing_parent.duration.as_nanos() as f64;
-    let start_len = (span_data
-        .start_time
-        .duration_since(timing_parent.start)
-        .unwrap_or_default()
-        .as_nanos() as f64
-        * scale)
-        .round() as usize;
-    let fill_len = ((duration.as_nanos() as f64 * scale).round() as usize).max(1);
+    let fill_len = ((duration.as_secs_f64() * scale).round() as usize).max(1);
 
     format!(
         "{start}{fill}{end}",

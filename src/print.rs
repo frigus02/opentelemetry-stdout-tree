@@ -55,7 +55,12 @@ fn format_timing(
     )
 }
 
-type SpanStartInfo<'a> = (Cow<'a, str>, Cow<'a, str>, bool, i64);
+struct SpanStartInfo<'a> {
+    name: Cow<'a, str>,
+    details: Cow<'a, str>,
+    is_err: bool,
+    status: i64,
+}
 
 fn get_http_span_start_info(span_data: &SpanData) -> Option<SpanStartInfo> {
     let method = span_data
@@ -102,12 +107,12 @@ fn get_http_span_start_info(span_data: &SpanData) -> Option<SpanStartInfo> {
         .map(|status_code| status_code >= 400)
         .unwrap_or(span_data.status_code == StatusCode::Error);
 
-    Some((
+    Some(SpanStartInfo {
         name,
-        format!("{} {}", method, path).into(),
+        details: format!("{} {}", method, path).into(),
         is_err,
-        status_code.unwrap_or(0),
-    ))
+        status: status_code.unwrap_or(0),
+    })
 }
 
 fn get_db_span_start_info(span_data: &SpanData) -> Option<SpanStartInfo> {
@@ -127,12 +132,21 @@ fn get_db_span_start_info(span_data: &SpanData) -> Option<SpanStartInfo> {
         "".into()
     };
 
-    Some((
+    Some(SpanStartInfo {
         name,
         details,
-        span_data.status_code == StatusCode::Error,
-        span_data.status_code as i64,
-    ))
+        is_err: span_data.status_code == StatusCode::Error,
+        status: span_data.status_code as i64,
+    })
+}
+
+fn get_default_span_start_info(span_data: &SpanData) -> SpanStartInfo {
+    SpanStartInfo {
+        name: span_data.name.as_str().into(),
+        details: "".into(),
+        is_err: span_data.status_code == StatusCode::Error,
+        status: span_data.status_code as i64,
+    }
 }
 
 struct PrintableTrace {
@@ -195,19 +209,14 @@ impl PrintableTrace {
                 SpanKind::Internal => "IN",
             };
 
-            let (name, details, is_err, status): SpanStartInfo =
-                if let Some(data) = get_http_span_start_info(&span_data) {
-                    data
-                } else if let Some(data) = get_db_span_start_info(&span_data) {
-                    data
-                } else {
-                    (
-                        span_data.name.as_str().into(),
-                        "".into(),
-                        span_data.status_code == StatusCode::Error,
-                        span_data.status_code as i64,
-                    )
-                };
+            let SpanStartInfo {
+                name,
+                details,
+                is_err,
+                status,
+            } = get_http_span_start_info(&span_data)
+                .or_else(|| get_db_span_start_info(&span_data))
+                .unwrap_or_else(|| get_default_span_start_info(&span_data));
 
             let duration = span_data
                 .end_time
@@ -223,18 +232,17 @@ impl PrintableTrace {
             );
             start.truncate(self.start_width);
 
-            let timing: Cow<str> = if let Some((trace_start_time, trace_duration)) = self.trace_time
-            {
-                format_timing(
-                    self.trace_time_width - 2,
-                    trace_start_time,
-                    trace_duration,
-                    &span_data,
-                )
-                .into()
-            } else {
-                "".into()
-            };
+            let timing = self
+                .trace_time
+                .map(|(trace_start_time, trace_duration)| {
+                    format_timing(
+                        self.trace_time_width - 2,
+                        trace_start_time,
+                        trace_duration,
+                        &span_data,
+                    )
+                })
+                .unwrap_or_else(|| "".into());
 
             self.buffer.set_color(ColorSpec::new().set_fg(if is_err {
                 Some(Color::Red)

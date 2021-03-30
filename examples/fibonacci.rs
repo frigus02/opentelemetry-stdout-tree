@@ -60,7 +60,9 @@ fn fibonacci_seq(to: u64) -> Vec<u64> {
 }
 
 fn main() {
-    let _ = opentelemetry_stdout_tree::new_pipeline().install_simple();
+    let _ = opentelemetry_stdout_tree::new_pipeline()
+        .with_timing_column_width(0.5)
+        .install_simple();
 
     global::tracer(TRACER_NAME).in_span("root", |_| {
         let mut args = std::env::args();

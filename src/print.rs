@@ -16,6 +16,12 @@ use terminal_size::terminal_size;
 /// Number of whitespace characters between columns (e.g. between status and duration).
 const COLUMN_GAP: usize = 2;
 
+/// Minimum width of the start column. Should have enough space to display "kind" (2 characters),
+/// gap (see above) and some part of the span name.
+///
+/// 10 was chosen arbitrarily.
+const MIN_START_WIDTH: usize = 10;
+
 /// Width of the status column. The longest expected content is an HTTP status code, i.e. 3 digits.
 const STATUS_WIDTH: usize = 3;
 
@@ -28,19 +34,22 @@ struct Columns {
     start_width: usize,
     status_width: usize,
     duration_width: usize,
-    trace_time_width: usize,
+    timing_width: usize,
 }
 
 impl Columns {
-    fn new(terminal_width: usize) -> Self {
+    fn new(terminal_width: usize, timing_column_width: f64) -> Self {
         let status_width = STATUS_WIDTH + COLUMN_GAP;
         let duration_width = DURATION_WIDTH + COLUMN_GAP;
-        let trace_time_width = terminal_width / 5;
+        let timing_width = ((terminal_width as f64 * timing_column_width).round() as usize).clamp(
+            0,
+            terminal_width - MIN_START_WIDTH - status_width - duration_width,
+        );
         Self {
-            start_width: terminal_width - status_width - duration_width - trace_time_width,
+            start_width: terminal_width - status_width - duration_width - timing_width,
             status_width,
             duration_width,
-            trace_time_width,
+            timing_width,
         }
     }
 }
@@ -97,14 +106,18 @@ impl<'a> PrintContext<'a> {
             self.columns.start_width + self.columns.status_width + self.columns.duration_width,
         );
 
-        let timing = format_timing(
-            self.columns.trace_time_width - COLUMN_GAP,
-            self.timing_parent.start,
-            self.timing_parent.duration,
-            event.timestamp,
-            Duration::from_nanos(0),
-            '·',
-        );
+        let timing = if self.columns.timing_width > COLUMN_GAP {
+            format_timing(
+                self.columns.timing_width - COLUMN_GAP,
+                self.timing_parent.start,
+                self.timing_parent.duration,
+                event.timestamp,
+                Duration::from_nanos(0),
+                '·',
+            )
+        } else {
+            "".into()
+        };
 
         self.buffer.set_color(&get_color(is_exception))?;
         writeln!(
@@ -114,7 +127,7 @@ impl<'a> PrintContext<'a> {
             start_width =
                 self.columns.start_width + self.columns.status_width + self.columns.duration_width,
             timing = timing,
-            timing_width = self.columns.trace_time_width
+            timing_width = self.columns.timing_width
         )
     }
 
@@ -148,14 +161,18 @@ impl<'a> PrintContext<'a> {
             .duration_since(span_data.start_time)
             .unwrap_or_default();
 
-        let timing = format_timing(
-            self.columns.trace_time_width - COLUMN_GAP,
-            self.timing_parent.start,
-            self.timing_parent.duration,
-            span_data.start_time,
-            duration,
-            '=',
-        );
+        let timing = if self.columns.timing_width > COLUMN_GAP {
+            format_timing(
+                self.columns.timing_width - COLUMN_GAP,
+                self.timing_parent.start,
+                self.timing_parent.duration,
+                span_data.start_time,
+                duration,
+                '=',
+            )
+        } else {
+            "".into()
+        };
 
         self.buffer.set_color(&get_color(is_err))?;
         writeln!(
@@ -168,7 +185,7 @@ impl<'a> PrintContext<'a> {
             duration = format_duration(duration),
             duration_width = self.columns.duration_width,
             timing = timing,
-            timing_width = self.columns.trace_time_width
+            timing_width = self.columns.timing_width
         )
     }
 }
@@ -207,8 +224,13 @@ impl PrintableTrace {
         Self(trace)
     }
 
-    fn print(mut self, buffer: &mut Buffer, terminal_width: usize) -> std::io::Result<()> {
-        let columns = Columns::new(terminal_width);
+    fn print(
+        mut self,
+        buffer: &mut Buffer,
+        terminal_width: usize,
+        timing_column_width: f64,
+    ) -> std::io::Result<()> {
+        let columns = Columns::new(terminal_width, timing_column_width);
 
         let parent_span_id = SpanId::invalid();
         let spans = self.consume_child_spans(parent_span_id);
@@ -260,13 +282,16 @@ fn get_terminal_width() -> usize {
     }
 }
 
-pub(crate) fn print_trace(trace: HashMap<SpanId, Vec<SpanData>>) -> std::io::Result<()> {
+pub(crate) fn print_trace(
+    trace: HashMap<SpanId, Vec<SpanData>>,
+    timing_column_width: f64,
+) -> std::io::Result<()> {
     let bufwtr = BufferWriter::stdout(ColorChoice::Auto);
     let mut buffer = bufwtr.buffer();
 
     let terminal_width = get_terminal_width();
 
-    PrintableTrace::new(trace).print(&mut buffer, terminal_width)?;
+    PrintableTrace::new(trace).print(&mut buffer, terminal_width, timing_column_width)?;
     bufwtr.print(&buffer)?;
     Ok(())
 }

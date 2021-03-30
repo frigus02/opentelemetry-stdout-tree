@@ -84,19 +84,23 @@ pub fn new_pipeline() -> StdoutTreePipelineBuilder {
 /// Pipeline builder for stdout tree exporter
 #[derive(Debug)]
 pub struct StdoutTreePipelineBuilder {
+    timing_column_width: f64,
     trace_config: Option<sdk::trace::Config>,
 }
 
 impl Default for StdoutTreePipelineBuilder {
     fn default() -> Self {
-        Self { trace_config: None }
+        Self {
+            timing_column_width: 0.2,
+            trace_config: None,
+        }
     }
 }
 
 impl StdoutTreePipelineBuilder {
     /// Install an OpenTelemetry pipeline with the stdout tree span exporter
     pub fn install_simple(mut self) -> sdk::trace::Tracer {
-        let exporter = StdoutTreeExporter::new();
+        let exporter = StdoutTreeExporter::new(self.timing_column_width);
         let mut provider_builder =
             sdk::trace::TracerProvider::builder().with_simple_exporter(exporter);
         if let Some(config) = self.trace_config.take() {
@@ -107,6 +111,14 @@ impl StdoutTreePipelineBuilder {
             provider.get_tracer("opentelemetry-stdout-tree", Some(env!("CARGO_PKG_VERSION")));
         let _ = global::set_tracer_provider(provider);
         tracer
+    }
+
+    /// Set width of timing column
+    ///
+    /// Value should be between 0 and 1. Default is 0.2;
+    pub fn with_timing_column_width(mut self, timing_column_width: f64) -> Self {
+        self.timing_column_width = timing_column_width;
+        self
     }
 
     /// Assign the SDK trace configuration
@@ -120,12 +132,14 @@ impl StdoutTreePipelineBuilder {
 #[derive(Debug)]
 pub struct StdoutTreeExporter {
     buffer: HashMap<TraceId, HashMap<SpanId, Vec<SpanData>>>,
+    timing_column_width: f64,
 }
 
 impl StdoutTreeExporter {
-    fn new() -> Self {
+    fn new(timing_column_width: f64) -> Self {
         Self {
             buffer: HashMap::new(),
+            timing_column_width,
         }
     }
 }
@@ -142,7 +156,7 @@ impl SpanExporter for StdoutTreeExporter {
                     .remove(&span_data.span_context.trace_id())
                     .unwrap_or_else(HashMap::new);
                 trace.insert(SpanId::invalid(), vec![span_data]);
-                print::print_trace(trace).map_err(Error::IoError)?;
+                print::print_trace(trace, self.timing_column_width).map_err(Error::IoError)?;
             } else {
                 self.buffer
                     .entry(span_data.span_context.trace_id())
@@ -203,7 +217,7 @@ impl SpanExporter for StdoutTreeExporter {
 
             // We're in shutdown. So we're doing a best effort attempt to print traces and silently
             // ignore any errors.
-            let _ = print::print_trace(trace);
+            let _ = print::print_trace(trace, self.timing_column_width);
         }
     }
 }

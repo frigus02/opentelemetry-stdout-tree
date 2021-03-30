@@ -56,6 +56,7 @@
 
 mod format;
 mod print;
+mod semantics;
 
 use async_trait::async_trait;
 use opentelemetry::{

@@ -20,13 +20,12 @@ pub(crate) fn format_timing(
     parent_start: SystemTime,
     parent_duration: Duration,
     start: SystemTime,
-    end: SystemTime,
+    duration: Duration,
     fill_char: char,
 ) -> String {
     let scale = available_width as f64 / parent_duration.as_secs_f64();
     let start_gap = start.duration_since(parent_start).unwrap_or_default();
     let start_len = ((start_gap.as_secs_f64() * scale).round() as usize).min(available_width - 1);
-    let duration = end.duration_since(start).unwrap_or_default();
     let fill_len = ((duration.as_secs_f64() * scale).round() as usize).max(1);
 
     format!(

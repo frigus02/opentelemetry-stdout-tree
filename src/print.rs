@@ -23,127 +23,26 @@ const STATUS_WIDTH: usize = 3;
 /// long unit, e.g. 999ms.
 const DURATION_WIDTH: usize = 5;
 
-fn print_event(
-    event: Event,
-    buffer: &mut Buffer,
-    indent: usize,
-    columns: &PrintColumns,
-    timing_parent: &TimingParent,
-) -> std::io::Result<()> {
-    let is_exception = event.name == "exception";
-    let message = if is_exception {
-        let exc_type = event
-            .attributes
-            .iter()
-            .find(|kv| kv.key == semcov::trace::EXCEPTION_TYPE)
-            .map_or_else(|| "unknown".into(), |kv| kv.value.as_str());
-        let exc_message = event
-            .attributes
-            .iter()
-            .find(|kv| kv.key == semcov::trace::EXCEPTION_MESSAGE)
-            .map_or_else(|| "".into(), |kv| kv.value.as_str());
-        format!("{}: {}", exc_type, exc_message)
-    } else {
-        event.name.into_owned()
-    };
-
-    let mut start = format!(
-        "{indent}{message}",
-        indent = " ".repeat(indent),
-        message = message
-    );
-    start.truncate(columns.start_width + columns.status_width + columns.duration_width);
-
-    let timing = format_timing(
-        columns.trace_time_width - COLUMN_GAP,
-        timing_parent.start,
-        timing_parent.duration,
-        event.timestamp,
-        event.timestamp,
-        '·',
-    );
-
-    buffer.set_color(ColorSpec::new().set_fg(if is_exception {
-        Some(Color::Red)
-    } else {
-        None
-    }))?;
-    writeln!(
-        buffer,
-        "{start:start_width$}{timing:>timing_width$}",
-        start = start,
-        start_width = columns.start_width + columns.status_width + columns.duration_width,
-        timing = timing,
-        timing_width = columns.trace_time_width
-    )
-}
-
-fn print_span(
-    span_data: &SpanData,
-    buffer: &mut Buffer,
-    indent: usize,
-    columns: &PrintColumns,
-    timing_parent: &TimingParent,
-) -> std::io::Result<()> {
-    let kind = match span_data.span_kind {
-        SpanKind::Client => "CL",
-        SpanKind::Server => "SE",
-        SpanKind::Producer => "PR",
-        SpanKind::Consumer => "CO",
-        SpanKind::Internal => "IN",
-    };
-
-    let SemanticInfo {
-        name,
-        details,
-        is_err,
-        status,
-    } = SemanticInfo::from(span_data);
-
-    let mut start = format!(
-        "{indent}{kind}  {name}  {details}",
-        indent = " ".repeat(indent),
-        kind = kind,
-        name = name,
-        details = details
-    );
-    start.truncate(columns.start_width);
-
-    let duration = span_data
-        .end_time
-        .duration_since(span_data.start_time)
-        .unwrap_or_default();
-
-    let timing = format_timing(
-        columns.trace_time_width - COLUMN_GAP,
-        timing_parent.start,
-        timing_parent.duration,
-        span_data.start_time,
-        span_data.end_time,
-        '=',
-    );
-
-    buffer.set_color(ColorSpec::new().set_fg(if is_err { Some(Color::Red) } else { None }))?;
-    writeln!(
-        buffer,
-        "{start:start_width$}{status:>status_width$}{duration:>duration_width$}{timing:>timing_width$}",
-        start = start,
-        start_width = columns.start_width,
-        status = status,
-        status_width = columns.status_width,
-        duration = format_duration(duration),
-        duration_width = columns.duration_width,
-        timing = timing,
-        timing_width = columns.trace_time_width
-    )
-}
-
 #[derive(Clone, Copy)]
-struct PrintColumns {
+struct Columns {
     start_width: usize,
     status_width: usize,
     duration_width: usize,
     trace_time_width: usize,
+}
+
+impl Columns {
+    fn new(terminal_width: usize) -> Self {
+        let status_width = STATUS_WIDTH + COLUMN_GAP;
+        let duration_width = DURATION_WIDTH + COLUMN_GAP;
+        let trace_time_width = terminal_width / 5;
+        Self {
+            start_width: terminal_width - status_width - duration_width - trace_time_width,
+            status_width,
+            duration_width,
+            trace_time_width,
+        }
+    }
 }
 
 struct TimingParent {
@@ -151,11 +50,127 @@ struct TimingParent {
     duration: Duration,
 }
 
-struct PrintableTrace {
-    trace: HashMap<SpanId, Vec<SpanData>>,
-    buffer: Buffer,
-    columns: PrintColumns,
+impl TimingParent {
+    fn new(start: SystemTime, end: SystemTime) -> Self {
+        let duration = end.duration_since(start).unwrap_or_default();
+        Self { start, duration }
+    }
+}
+
+fn get_color(is_err: bool) -> ColorSpec {
+    let mut color = ColorSpec::new();
+    color.set_fg(if is_err { Some(Color::Red) } else { None });
+    color
+}
+
+struct PrintContext<'a> {
+    buffer: &'a mut Buffer,
+    columns: Columns,
     timing_parent: TimingParent,
+}
+
+impl<'a> PrintContext<'a> {
+    fn print_event(&mut self, event: Event, indent: usize) -> std::io::Result<()> {
+        let is_exception = event.name == "exception";
+        let message = if is_exception {
+            let exc_type = event
+                .attributes
+                .iter()
+                .find(|kv| kv.key == semcov::trace::EXCEPTION_TYPE)
+                .map_or_else(|| "unknown".into(), |kv| kv.value.as_str());
+            let exc_message = event
+                .attributes
+                .iter()
+                .find(|kv| kv.key == semcov::trace::EXCEPTION_MESSAGE)
+                .map_or_else(|| "".into(), |kv| kv.value.as_str());
+            format!("{}: {}", exc_type, exc_message)
+        } else {
+            event.name.into_owned()
+        };
+
+        let mut start = format!(
+            "{indent}{message}",
+            indent = " ".repeat(indent),
+            message = message
+        );
+        start.truncate(
+            self.columns.start_width + self.columns.status_width + self.columns.duration_width,
+        );
+
+        let timing = format_timing(
+            self.columns.trace_time_width - COLUMN_GAP,
+            self.timing_parent.start,
+            self.timing_parent.duration,
+            event.timestamp,
+            Duration::from_nanos(0),
+            '·',
+        );
+
+        self.buffer.set_color(&get_color(is_exception))?;
+        writeln!(
+            self.buffer,
+            "{start:start_width$}{timing:>timing_width$}",
+            start = start,
+            start_width =
+                self.columns.start_width + self.columns.status_width + self.columns.duration_width,
+            timing = timing,
+            timing_width = self.columns.trace_time_width
+        )
+    }
+
+    fn print_span(&mut self, span_data: &SpanData, indent: usize) -> std::io::Result<()> {
+        let kind = match span_data.span_kind {
+            SpanKind::Client => "CL",
+            SpanKind::Server => "SE",
+            SpanKind::Producer => "PR",
+            SpanKind::Consumer => "CO",
+            SpanKind::Internal => "IN",
+        };
+
+        let SemanticInfo {
+            name,
+            details,
+            is_err,
+            status,
+        } = SemanticInfo::from(span_data);
+
+        let mut start = format!(
+            "{indent}{kind}  {name}  {details}",
+            indent = " ".repeat(indent),
+            kind = kind,
+            name = name,
+            details = details
+        );
+        start.truncate(self.columns.start_width);
+
+        let duration = span_data
+            .end_time
+            .duration_since(span_data.start_time)
+            .unwrap_or_default();
+
+        let timing = format_timing(
+            self.columns.trace_time_width - COLUMN_GAP,
+            self.timing_parent.start,
+            self.timing_parent.duration,
+            span_data.start_time,
+            duration,
+            '=',
+        );
+
+        self.buffer.set_color(&get_color(is_err))?;
+        writeln!(
+            self.buffer,
+            "{start:start_width$}{status:>status_width$}{duration:>duration_width$}{timing:>timing_width$}",
+            start = start,
+            start_width = self.columns.start_width,
+            status = status,
+            status_width = self.columns.status_width,
+            duration = format_duration(duration),
+            duration_width = self.columns.duration_width,
+            timing = timing,
+            timing_width = self.columns.trace_time_width
+        )
+    }
 }
 
 enum Printable {
@@ -163,91 +178,73 @@ enum Printable {
     Span(Box<SpanData>),
 }
 
-impl PrintableTrace {
-    fn print(
-        mut trace: HashMap<SpanId, Vec<SpanData>>,
-        mut buffer: Buffer,
-        terminal_width: usize,
-    ) -> std::io::Result<Buffer> {
-        let status_width = STATUS_WIDTH + COLUMN_GAP;
-        let duration_width = DURATION_WIDTH + COLUMN_GAP;
-        let trace_time_width = terminal_width / 5;
-        let columns = PrintColumns {
-            start_width: terminal_width - status_width - duration_width - trace_time_width,
-            status_width,
-            duration_width,
-            trace_time_width,
-        };
-
-        let parent_span_id = SpanId::invalid();
-        let spans = trace
-            .remove(&parent_span_id)
-            .ok_or(std::io::ErrorKind::NotFound)?;
-        for span in spans {
-            let trace_start = span.start_time;
-            let trace_duration = span
-                .end_time
-                .duration_since(span.start_time)
-                .unwrap_or_default();
-            let timing_parent = TimingParent {
-                start: trace_start,
-                duration: trace_duration,
-            };
-
-            let mut printable_trace = PrintableTrace {
-                trace,
-                buffer,
-                columns,
-                timing_parent,
-            };
-            printable_trace.print_span_tree(span, 0)?;
-            trace = printable_trace.trace;
-            buffer = printable_trace.buffer;
-        }
-
-        Ok(buffer)
-    }
-
-    fn get_child_spans(&mut self, parent_span_id: SpanId) -> Vec<SpanData> {
-        self.trace.remove(&parent_span_id).unwrap_or_default()
-    }
-
-    fn print_span_tree(&mut self, span_data: SpanData, indent: usize) -> std::io::Result<()> {
-        print_span(
-            &span_data,
-            &mut self.buffer,
-            indent,
-            &self.columns,
-            &self.timing_parent,
-        )?;
-
-        let mut children: Vec<Printable> = self
-            .get_child_spans(span_data.span_context.span_id())
+impl Printable {
+    fn merge_lists(
+        spans: impl IntoIterator<Item = SpanData>,
+        events: impl IntoIterator<Item = Event>,
+    ) -> Vec<Printable> {
+        let mut merged: Vec<Printable> = spans
             .into_iter()
             .map(|span| Printable::Span(Box::new(span)))
             .chain(
-                span_data
-                    .message_events
+                events
                     .into_iter()
                     .map(|event| Printable::Event(Box::new(event))),
             )
             .collect();
-
-        children.sort_by_key(|x| match x {
+        merged.sort_by_key(|x| match x {
             Printable::Span(span) => span.start_time,
             Printable::Event(event) => event.timestamp,
         });
+        merged
+    }
+}
+
+struct PrintableTrace(HashMap<SpanId, Vec<SpanData>>);
+
+impl PrintableTrace {
+    fn new(trace: HashMap<SpanId, Vec<SpanData>>) -> Self {
+        Self(trace)
+    }
+
+    fn print(mut self, buffer: &mut Buffer, terminal_width: usize) -> std::io::Result<()> {
+        let columns = Columns::new(terminal_width);
+
+        let parent_span_id = SpanId::invalid();
+        let spans = self.consume_child_spans(parent_span_id);
+        for span in spans {
+            let timing_parent = TimingParent::new(span.start_time, span.end_time);
+            let mut context = PrintContext {
+                buffer,
+                columns,
+                timing_parent,
+            };
+            self.print_span_tree(&mut context, span, 0)?;
+        }
+
+        Ok(())
+    }
+
+    fn consume_child_spans(&mut self, parent_span_id: SpanId) -> Vec<SpanData> {
+        self.0.remove(&parent_span_id).unwrap_or_default()
+    }
+
+    fn print_span_tree(
+        &mut self,
+        context: &mut PrintContext,
+        span_data: SpanData,
+        indent: usize,
+    ) -> std::io::Result<()> {
+        context.print_span(&span_data, indent)?;
+
+        let child_spans = self.consume_child_spans(span_data.span_context.span_id());
+        let child_events = span_data.message_events;
+        let children = Printable::merge_lists(child_spans, child_events);
 
         for child in children {
             match child {
-                Printable::Span(span) => self.print_span_tree(*span, indent + 1)?,
-                Printable::Event(event) => print_event(
-                    *event,
-                    &mut self.buffer,
-                    indent + 1,
-                    &self.columns,
-                    &self.timing_parent,
-                )?,
+                Printable::Span(span) => self.print_span_tree(context, *span, indent + 1)?,
+                Printable::Event(event) => context.print_event(*event, indent + 1)?,
             };
         }
 
@@ -265,11 +262,11 @@ fn get_terminal_width() -> usize {
 
 pub(crate) fn print_trace(trace: HashMap<SpanId, Vec<SpanData>>) -> std::io::Result<()> {
     let bufwtr = BufferWriter::stdout(ColorChoice::Auto);
-    let buffer = bufwtr.buffer();
+    let mut buffer = bufwtr.buffer();
 
     let terminal_width = get_terminal_width();
 
-    let buffer = PrintableTrace::print(trace, buffer, terminal_width)?;
+    PrintableTrace::new(trace).print(&mut buffer, terminal_width)?;
     bufwtr.print(&buffer)?;
     Ok(())
 }

@@ -1,3 +1,4 @@
+use crate::format::{format_duration, format_timing};
 use opentelemetry::{
     sdk::export::trace::SpanData,
     trace::{Event, SpanId, SpanKind, StatusCode},
@@ -21,44 +22,6 @@ const STATUS_WIDTH: usize = 3;
 /// Width of the duration column. The longest expected content  is 3 digits plus a 1-2 character
 /// long unit, e.g. 999ms.
 const DURATION_WIDTH: usize = 5;
-
-fn format_duration(d: Duration) -> String {
-    let secs = d.as_secs();
-    if secs > 7200 {
-        format!("{}h", secs / 3600)
-    } else if secs > 120 {
-        format!("{}m", secs / 60)
-    } else if secs > 0 {
-        format!("{}s", d.as_secs())
-    } else if d.as_millis() > 0 {
-        format!("{}ms", d.as_millis())
-    } else {
-        "0".into()
-    }
-}
-
-fn format_timing(
-    available_width: usize,
-    timing_parent: &TimingParent,
-    start_time: SystemTime,
-    end_time: SystemTime,
-    fill_char: char,
-) -> String {
-    let scale = available_width as f64 / timing_parent.duration.as_secs_f64();
-    let start_gap = start_time
-        .duration_since(timing_parent.start)
-        .unwrap_or_default();
-    let start_len = ((start_gap.as_secs_f64() * scale).round() as usize).min(available_width - 1);
-    let duration = end_time.duration_since(start_time).unwrap_or_default();
-    let fill_len = ((duration.as_secs_f64() * scale).round() as usize).max(1);
-
-    format!(
-        "{start}{fill}{end}",
-        start = " ".repeat(start_len),
-        fill = fill_char.to_string().repeat(fill_len),
-        end = " ".repeat(available_width - start_len - fill_len)
-    )
-}
 
 struct SpanStartInfo<'a> {
     name: Cow<'a, str>,
@@ -194,10 +157,11 @@ fn print_event(
 
     let timing = format_timing(
         columns.trace_time_width - COLUMN_GAP,
-        timing_parent,
+        timing_parent.start,
+        timing_parent.duration,
         event.timestamp,
         event.timestamp,
-        '.',
+        '·',
     );
 
     buffer.set_color(ColorSpec::new().set_fg(if is_exception {
@@ -255,7 +219,8 @@ fn print_span(
 
     let timing = format_timing(
         columns.trace_time_width - COLUMN_GAP,
-        timing_parent,
+        timing_parent.start,
+        timing_parent.duration,
         span_data.start_time,
         span_data.end_time,
         '=',

@@ -12,13 +12,13 @@
 //!   CL  sessions  SELECT sess FROM "session" WHERE sid    0  219ms           =======
 //!  IN  middleware - initialize                            0      0                  =
 //!  IN  middleware - authenticate                          0      0                  =
-//!   user authenticated                                                              .
+//!   user authenticated                                                              ·
 //!  IN  request handler - /authors/:authorId/books/:boo    0   59ms                  ==
 //!   CL  book-service.book-service  POST /graphql        200   59ms                  ==
 //!    SE  book-service.book.service  POST /graphql       200      0                   =
 //!     IN  query                                           0      0                   =
 //!      IN  field                                          2      0                   =
-//!       unknown: something went wrong                                                .
+//!       unknown: something went wrong                                                ·
 //!     IN  parse                                           0      0                   =
 //!     IN  validation                                      0      0                   =
 //! ```
@@ -54,6 +54,9 @@
 #![deny(missing_docs, unreachable_pub, missing_debug_implementations)]
 #![cfg_attr(test, deny(warnings))]
 
+mod format;
+mod print;
+
 use async_trait::async_trait;
 use opentelemetry::{
     global,
@@ -71,8 +74,6 @@ use std::{
     sync::Arc,
     time::SystemTime,
 };
-
-mod print;
 
 /// Create a new stdout tree exporter pipeline builder
 pub fn new_pipeline() -> StdoutTreePipelineBuilder {
@@ -140,7 +141,7 @@ impl SpanExporter for StdoutTreeExporter {
                     .remove(&span_data.span_context.trace_id())
                     .unwrap_or_else(HashMap::new);
                 trace.insert(SpanId::invalid(), vec![span_data]);
-                print::print_trace(trace).map_err(Error::IOError)?;
+                print::print_trace(trace).map_err(Error::IoError)?;
             } else {
                 self.buffer
                     .entry(span_data.span_context.trace_id())
@@ -212,7 +213,7 @@ impl SpanExporter for StdoutTreeExporter {
 pub enum Error {
     /// Printing to stdout failed.
     #[error("write to stdout failed with {0}")]
-    IOError(std::io::Error),
+    IoError(std::io::Error),
 }
 
 impl ExportError for Error {

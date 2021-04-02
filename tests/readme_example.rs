@@ -4,9 +4,9 @@ use std::io::Read;
 use std::process::Command;
 
 #[test]
-fn example_output() {
+fn readme_example() {
     let expected = extract_example_from_module_docs("src/lib.rs");
-    let actual = run_example("tree");
+    let actual = run_example("readme");
     assert_eq!(normalize_output(&expected), normalize_output(&actual));
 }
 

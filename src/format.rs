@@ -33,7 +33,8 @@ pub(crate) fn format_timing(
     let scale = available_width as f64 / parent_duration.as_secs_f64();
     let start_gap = start.duration_since(parent_start).unwrap_or_default();
     let fill_len = ((duration.as_secs_f64() * scale).round() as usize).max(1);
-    let start_len = ((start_gap.as_secs_f64() * scale).round() as usize).min(available_width - fill_len);
+    let start_len =
+        ((start_gap.as_secs_f64() * scale).round() as usize).min(available_width - fill_len);
 
     format!(
         "{start}{fill}{end}",

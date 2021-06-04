@@ -21,8 +21,8 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 async-trait = "0.1"
 thiserror = "1"
-opentelemetry = "0.13"
-opentelemetry-semantic-conventions = "0.5"
+opentelemetry = "0.14"
+opentelemetry-semantic-conventions = "0.6"
 termcolor = "1"
 terminal_size = "0.1"
 url = "2"

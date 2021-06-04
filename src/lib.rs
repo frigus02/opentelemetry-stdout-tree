@@ -72,7 +72,6 @@ use opentelemetry::{
 };
 use std::{
     collections::{HashMap, HashSet},
-    sync::Arc,
     time::SystemTime,
 };
 
@@ -202,11 +201,11 @@ impl SpanExporter for StdoutTreeExporter {
                         start_time: SystemTime::now(),
                         end_time: SystemTime::now(),
                         attributes: sdk::trace::EvictedHashMap::new(0, 0),
-                        message_events: sdk::trace::EvictedQueue::new(0),
+                        events: sdk::trace::EvictedQueue::new(0),
                         links: sdk::trace::EvictedQueue::new(0),
                         status_code: StatusCode::Unset,
-                        status_message: String::new(),
-                        resource: Arc::new(sdk::Resource::default()),
+                        status_message: "".into(),
+                        resource: None,
                         instrumentation_lib: sdk::InstrumentationLibrary::new(
                             "opentelemetry-stdout-tree",
                             None,

@@ -36,7 +36,7 @@ fn get_http_span_semantic_info(span_data: &SpanData) -> Option<SemanticInfo> {
     } else if let Some(host) = span_data.attributes.get(&semcov::trace::HTTP_HOST) {
         host.as_str()
     } else {
-        span_data.name.as_str().into()
+        span_data.name.clone()
     };
 
     let path = if let Some(url) = span_data.attributes.get(&semcov::trace::HTTP_URL) {
@@ -55,7 +55,7 @@ fn get_http_span_semantic_info(span_data: &SpanData) -> Option<SemanticInfo> {
         .and_then(|v| match v {
             Value::I64(v) => Some(*v),
             Value::F64(v) => Some(*v as i64),
-            Value::String(v) => i64::from_str_radix(v, 10).ok(),
+            Value::String(v) => v.parse::<i64>().ok(),
             _ => None,
         });
 
@@ -77,7 +77,7 @@ fn get_db_span_semantic_info(span_data: &SpanData) -> Option<SemanticInfo> {
     let name = if let Some(name) = span_data.attributes.get(&semcov::trace::DB_NAME) {
         name.as_str()
     } else {
-        span_data.name.as_str().into()
+        span_data.name.clone()
     };
 
     let details = if let Some(statement) = span_data.attributes.get(&semcov::trace::DB_STATEMENT) {
@@ -105,7 +105,7 @@ fn get_default_span_semantic_info(span_data: &SpanData) -> SemanticInfo {
         .join(" ");
 
     SemanticInfo {
-        name: span_data.name.as_str().into(),
+        name: span_data.name.clone(),
         details: details.into(),
         is_err: span_data.status_code == StatusCode::Error,
         status: span_data.status_code as i64,

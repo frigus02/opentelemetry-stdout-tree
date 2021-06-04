@@ -159,4 +159,6 @@ fn main() {
             });
         });
     });
+
+    opentelemetry::global::shutdown_tracer_provider();
 }

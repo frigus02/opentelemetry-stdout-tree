@@ -16,8 +16,8 @@ impl<State: Clone + Send + Sync + 'static> Middleware<State> for OtelMiddleware 
         let url = req.url().clone();
 
         let tracer = opentelemetry::global::tracer("http");
-        let span = tracer
-            .span_builder(&format!("{} {}", method, url))
+        let mut span = tracer
+            .span_builder(format!("{} {}", method, url))
             .with_kind(SpanKind::Server)
             .with_attributes(vec![
                 semcov::trace::HTTP_METHOD.string(method.to_string()),
@@ -51,6 +51,8 @@ async fn main() -> tide::Result<()> {
     app.at("/hello/:name").get(say_hello);
     println!("Visit http://localhost:8080/hello/your_name to see traces...");
     app.listen("127.0.0.1:8080").await?;
+
+    opentelemetry::global::shutdown_tracer_provider();
 
     Ok(())
 }

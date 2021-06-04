@@ -260,7 +260,7 @@ impl PrintableTrace {
         context.print_span(&span_data, indent)?;
 
         let child_spans = self.consume_child_spans(span_data.span_context.span_id());
-        let child_events = span_data.message_events;
+        let child_events = span_data.events;
         let children = Printable::merge_lists(child_spans, child_events);
 
         for child in children {

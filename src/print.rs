@@ -232,7 +232,7 @@ impl PrintableTrace {
     ) -> std::io::Result<()> {
         let columns = Columns::new(terminal_width, timing_column_width);
 
-        let parent_span_id = SpanId::invalid();
+        let parent_span_id = SpanId::INVALID;
         let spans = self.consume_child_spans(parent_span_id);
         for span in spans {
             let timing_parent = TimingParent::new(span.start_time, span.end_time);

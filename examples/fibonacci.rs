@@ -69,7 +69,7 @@ fn main() {
         let _process_name = args.next().expect("0th argument should exist");
         let n = args
             .next()
-            .map(|n| u64::from_str_radix(&n, 10).expect(""))
+            .map(|n| n.parse::<u64>().expect(""))
             .unwrap_or(5);
         let sequence = fibonacci_seq(n);
         info(format!(

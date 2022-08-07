@@ -83,7 +83,7 @@ fn main() {
             .with_kind(SpanKind::Internal)
             .start(&tracer);
         tracer.with_span(span, |cx| {
-            cx.span().add_event("user authenticated".into(), vec![
+            cx.span().add_event("user authenticated", vec![
                 semcov::trace::ENDUSER_ID.string("42")
             ]);
         });

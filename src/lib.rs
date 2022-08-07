@@ -106,8 +106,11 @@ impl StdoutTreePipelineBuilder {
             provider_builder = provider_builder.with_config(config);
         }
         let provider = provider_builder.build();
-        let tracer =
-            provider.get_tracer("opentelemetry-stdout-tree", Some(env!("CARGO_PKG_VERSION")));
+        let tracer = provider.versioned_tracer(
+            "opentelemetry-stdout-tree",
+            Some(env!("CARGO_PKG_VERSION")),
+            None,
+        );
         let _ = global::set_tracer_provider(provider);
         tracer
     }
@@ -147,14 +150,14 @@ impl StdoutTreeExporter {
 impl SpanExporter for StdoutTreeExporter {
     async fn export(&mut self, batch: Vec<SpanData>) -> ExportResult {
         for span_data in batch {
-            if span_data.parent_span_id.to_u64() == 0 || span_data.span_context.is_remote() {
+            if span_data.parent_span_id == SpanId::INVALID || span_data.span_context.is_remote() {
                 // TODO: This assumes that a trace only has 1 root span, which can be identified by
                 // a zero-ed parent span id or by having a remote parent. Is this true?
                 let mut trace = self
                     .buffer
                     .remove(&span_data.span_context.trace_id())
-                    .unwrap_or_else(HashMap::new);
-                trace.insert(SpanId::invalid(), vec![span_data]);
+                    .unwrap_or_default();
+                trace.insert(SpanId::INVALID, vec![span_data]);
                 print::print_trace(trace, self.timing_column_width).map_err(Error::IoError)?;
             } else {
                 self.buffer
@@ -178,24 +181,19 @@ impl SpanExporter for StdoutTreeExporter {
                 .flatten()
                 .map(|span_data| span_data.span_context.span_id())
                 .collect();
-            let parent_span_ids: Vec<_> = trace
-                .keys()
-                .cloned()
-                .filter(|x| !span_ids.contains(x))
-                .collect();
+            let parent_span_ids = trace.keys().cloned().filter(|x| !span_ids.contains(x));
             trace.insert(
-                SpanId::invalid(),
+                SpanId::INVALID,
                 parent_span_ids
-                    .into_iter()
                     .map(|parent_span_id| SpanData {
                         span_context: SpanContext::new(
                             trace_id,
                             parent_span_id,
-                            0,
-                            false,
-                            Default::default(),
+                            /* trace_flags */ Default::default(),
+                            /* is_remote */ false,
+                            /* trace_trace */ Default::default(),
                         ),
-                        parent_span_id: SpanId::invalid(),
+                        parent_span_id: SpanId::INVALID,
                         span_kind: SpanKind::Internal,
                         name: "ORPHANED".into(),
                         start_time: SystemTime::now(),

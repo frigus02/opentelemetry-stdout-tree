@@ -25,13 +25,13 @@ impl<State: Clone + Send + Sync + 'static> Middleware<State> for OtelMiddleware 
             ])
             .start(&tracer);
 
-        span.add_event("request.started".into(), Vec::new());
+        span.add_event("request.started", Vec::new());
 
         let cx = Context::current_with_span(span);
         let res = next.run(req).with_context(cx.clone()).await;
         let span = cx.span();
 
-        span.add_event("request.completed".into(), Vec::new());
+        span.add_event("request.completed", Vec::new());
 
         span.set_attribute(semcov::trace::HTTP_STATUS_CODE.i64(u16::from(res.status()).into()));
         if let Some(err) = res.error() {
